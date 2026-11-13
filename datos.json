@@ -1,0 +1,13 @@
+{
+  "registros": [
+    { "mes": "2026-01", "area": "Planeación", "recibidas": 42, "resueltas": 34 },
+    { "mes": "2026-01", "area": "Operaciones", "recibidas": 58, "resueltas": 45 },
+    { "mes": "2026-01", "area": "Soporte", "recibidas": 31, "resueltas": 26 },
+    { "mes": "2026-02", "area": "Planeación", "recibidas": 48, "resueltas": 41 },
+    { "mes": "2026-02", "area": "Operaciones", "recibidas": 65, "resueltas": 55 },
+    { "mes": "2026-02", "area": "Soporte", "recibidas": 36, "resueltas": 31 },
+    { "mes": "2026-03", "area": "Planeación", "recibidas": 53, "resueltas": 47 },
+    { "mes": "2026-03", "area": "Operaciones", "recibidas": 72, "resueltas": 64 },
+    { "mes": "2026-03", "area": "Soporte", "recibidas": 40, "resueltas": 37 }
+  ]
+}

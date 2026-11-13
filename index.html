@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tablero de solicitudes</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, system-ui, sans-serif;
+      color: #172536;
+      background: #f3f6f8;
+      --muted: #46576a;
+      --border: #dce4eb;
+      --received: #425ec3;
+      --resolved: #087866;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 66rem; margin: auto; padding: clamp(1rem, 5vw, 3.5rem); }
+    header, .chart-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; }
+    header { padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
+    h1, h2, p, dl, dd { margin: 0; }
+    h1 { font-size: clamp(1.7rem, 5vw, 2.6rem); letter-spacing: -.04em; }
+    h2 { font-size: 1.2rem; }
+    header p, dt, #estado, .legend, .month { color: var(--muted); }
+    header p { margin-top: .3rem; }
+    .file-control { display: grid; gap: .35rem; max-width: 100%; font-size: .875rem; }
+    input, select { max-width: 100%; font: inherit; }
+    input::file-selector-button, select {
+      color: inherit;
+      background: white;
+      border: 1px solid #a7b5c3;
+      border-radius: .45rem;
+      padding: .5rem .65rem;
+    }
+    input::file-selector-button { cursor: pointer; }
+    #estado { margin: 1rem 0; overflow-wrap: anywhere; }
+    #estado.error { color: #a12131; }
+    .filter { display: flex; align-items: center; gap: .65rem; margin-bottom: 1rem; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .75rem; }
+    .card, .chart { background: white; border: 1px solid var(--border); border-radius: .8rem; }
+    .card { padding: 1rem 1.25rem; }
+    dt, .legend, .month { font-size: .875rem; }
+    dd { margin-top: .35rem; font-size: 2rem; font-weight: 700; letter-spacing: -.05em; }
+    .chart { margin-top: 1rem; padding: 1.25rem; }
+    .legend { display: flex; flex-wrap: wrap; gap: .75rem; }
+    .legend span { display: inline-flex; align-items: center; gap: .35rem; }
+    .swatch { width: .7rem; height: .7rem; border-radius: .2rem; }
+    .received { background: var(--received); }
+    .resolved { background: var(--resolved); }
+    #grafico { display: grid; gap: .85rem; margin-top: 1.2rem; }
+    .month { display: grid; grid-template-columns: 6.25rem minmax(0, 1fr); align-items: center; gap: .65rem; }
+    .month-name { font-weight: 600; }
+    .series { display: grid; gap: .3rem; }
+    .bar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
+    .track { height: .65rem; background: #eef2f6; border-radius: 1rem; }
+    .bar { display: block; height: 100%; border-radius: inherit; }
+    .value { font-variant-numeric: tabular-nums; }
+    @media (max-width: 28rem) { .month { grid-template-columns: 1fr; gap: .25rem; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Tablero de solicitudes</h1>
+        <p>Datos ficticios de ejemplo</p>
+      </div>
+      <label class="file-control" for="archivo">
+        Cargar archivo JSON
+        <input id="archivo" type="file" accept=".json,application/json" aria-describedby="estado">
+      </label>
+    </header>
+
+    <p id="estado" role="status">Cargando datos…</p>
+    <section id="tablero" aria-label="Indicadores de solicitudes" hidden>
+      <label class="filter" for="area">Área <select id="area"></select></label>
+      <dl class="cards">
+        <div class="card"><dt>Recibidas</dt><dd id="recibidas"></dd></div>
+        <div class="card"><dt>Resueltas</dt><dd id="resueltas"></dd></div>
+        <div class="card"><dt>Tasa de resolución</dt><dd id="tasa"></dd></div>
+      </dl>
+      <section class="chart" aria-labelledby="titulo-grafico">
+        <div class="chart-heading">
+          <h2 id="titulo-grafico">Solicitudes por mes</h2>
+          <div class="legend" aria-hidden="true">
+            <span><i class="swatch received"></i> Recibidas</span>
+            <span><i class="swatch resolved"></i> Resueltas</span>
+          </div>
+        </div>
+        <div id="grafico"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const archivo = document.querySelector('#archivo');
+    const estado = document.querySelector('#estado');
+    const tablero = document.querySelector('#tablero');
+    const filtro = document.querySelector('#area');
+    const grafico = document.querySelector('#grafico');
+    const numero = new Intl.NumberFormat('es-CO');
+    const porcentaje = new Intl.NumberFormat('es-CO', { style: 'percent', maximumFractionDigits: 1 });
+    const fecha = new Intl.DateTimeFormat('es-CO', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+    let registros = [];
+    let cargaActual = 0;
+
+    function informar(mensaje, error = false) {
+      estado.textContent = mensaje;
+      estado.classList.toggle('error', error);
+    }
+
+    function cargar(datos, nombre) {
+      if (!Array.isArray(datos?.registros)) {
+        throw new Error('El JSON debe contener un arreglo «registros».');
+      }
+
+      datos.registros.forEach((fila, indice) => {
+        if (typeof fila?.mes !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(fila.mes) ||
+            typeof fila.area !== 'string' || !fila.area.trim() ||
+            ![fila.recibidas, fila.resueltas].every(valor => Number.isSafeInteger(valor) && valor >= 0)) {
+          throw new Error(`Registro ${indice + 1}: usa un mes AAAA-MM, un área y conteos enteros no negativos.`);
+        }
+      });
+
+      registros = datos.registros.map(fila => ({ ...fila, area: fila.area.trim() }));
+      const areas = [...new Set(registros.map(fila => fila.area))].sort((a, b) => a.localeCompare(b, 'es-CO'));
+      filtro.replaceChildren(new Option('Todas las áreas', ''), ...areas.map(area => new Option(area, area)));
+      informar(`${nombre} · ${numero.format(registros.length)} registros`);
+      tablero.hidden = false;
+      renderizar();
+    }
+
+    function agregarBarra(contenedor, cantidad, maximo, clase, etiqueta) {
+      const fila = document.createElement('div');
+      fila.className = 'bar-row';
+      const pista = document.createElement('span');
+      pista.className = 'track';
+      pista.setAttribute('aria-hidden', 'true');
+      const barra = document.createElement('span');
+      barra.className = `bar ${clase}`;
+      barra.style.width = `${cantidad / maximo * 100}%`;
+      pista.append(barra);
+      const valor = document.createElement('span');
+      valor.className = 'value';
+      valor.textContent = numero.format(cantidad);
+      valor.setAttribute('aria-label', `${etiqueta}: ${valor.textContent}`);
+      fila.append(pista, valor);
+      contenedor.append(fila);
+    }
+
+    function renderizar() {
+      let recibidas = 0;
+      let resueltas = 0;
+      const meses = new Map();
+      for (const fila of registros) {
+        if (filtro.value && fila.area !== filtro.value) continue;
+        recibidas += fila.recibidas;
+        resueltas += fila.resueltas;
+        const mes = meses.get(fila.mes) ?? { recibidas: 0, resueltas: 0 };
+        mes.recibidas += fila.recibidas;
+        mes.resueltas += fila.resueltas;
+        meses.set(fila.mes, mes);
+      }
+
+      document.querySelector('#recibidas').textContent = numero.format(recibidas);
+      document.querySelector('#resueltas').textContent = numero.format(resueltas);
+      document.querySelector('#tasa').textContent = recibidas ? porcentaje.format(resueltas / recibidas) : '—';
+      grafico.replaceChildren();
+
+      if (!meses.size) {
+        grafico.textContent = 'El archivo no contiene registros.';
+        return;
+      }
+
+      let maximo = 1;
+      for (const mes of meses.values()) maximo = Math.max(maximo, mes.recibidas, mes.resueltas);
+      for (const mes of [...meses.keys()].sort()) {
+        const fila = document.createElement('div');
+        fila.className = 'month';
+        const nombre = document.createElement('span');
+        nombre.className = 'month-name';
+        nombre.textContent = fecha.format(new Date(`${mes}-01T00:00:00Z`));
+        const series = document.createElement('div');
+        series.className = 'series';
+        agregarBarra(series, meses.get(mes).recibidas, maximo, 'received', 'Recibidas');
+        agregarBarra(series, meses.get(mes).resueltas, maximo, 'resolved', 'Resueltas');
+        fila.append(nombre, series);
+        grafico.append(fila);
+      }
+    }
+
+    filtro.addEventListener('change', renderizar);
+    archivo.addEventListener('change', async () => {
+      const seleccionado = archivo.files[0];
+      if (!seleccionado) return;
+      const carga = ++cargaActual;
+      try {
+        const datos = JSON.parse(await seleccionado.text());
+        if (carga === cargaActual) cargar(datos, seleccionado.name);
+      } catch (error) {
+        if (carga === cargaActual) informar(`No se pudo cargar ${seleccionado.name}. ${error.message}`, true);
+      } finally {
+        if (carga === cargaActual) archivo.value = '';
+      }
+    });
+
+    async function cargarEjemplo() {
+      if (location.protocol === 'file:') {
+        informar('Selecciona datos.json para ver el tablero.');
+        return;
+      }
+      const carga = ++cargaActual;
+      try {
+        const respuesta = await fetch('./datos.json', { cache: 'no-cache' });
+        if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+        const datos = await respuesta.json();
+        if (carga === cargaActual) cargar(datos, 'datos.json');
+      } catch (error) {
+        if (carga === cargaActual) informar(`No se pudo leer datos.json (${error.message}). Puedes cargarlo manualmente.`, true);
+      }
+    }
+
+    cargarEjemplo();
+  </script>
+</body>
+</html>
